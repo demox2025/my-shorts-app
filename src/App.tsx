@@ -1,3 +1,4 @@
+import { fetchLiveVideosFromGitHub } from './services/githubSync';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ChevronUp, ChevronDown, Info, X, HelpCircle, Film, DownloadCloud, Sparkles, Lock, RefreshCw } from 'lucide-react';
 import { VideoItem } from './types/video';
@@ -65,6 +66,8 @@ export default function App() {
   const loadAllVideos = async () => {
     setIsSyncing(true);
     try {
+      const githubVideos = await fetchLiveVideosFromGitHub();
+setServerVideos(githubVideos);
       // 1. Fetch public videos from server (synced across all phones)
       const fetched = await fetchPublicVideos();
       if (fetched && fetched.length > 0) {
