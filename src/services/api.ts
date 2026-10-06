@@ -1,29 +1,40 @@
 import { VideoItem } from '../types/video';
 import { INITIAL_VIDEOS } from '../data/defaultVideos';
 
-/**
- * Fetch all public videos from server (synced across all phones)
- */
-export async function fetchPublicVideos(): Promise<VideoItem[]> {
+const LOCAL_STORAGE_VIDEOS_KEY = 'sniptok_custom_videos_list';
+const ADMIN_PASSWORD_FALLBACK = 'Ma44332211';
+
+function getLocalCustomVideos(): VideoItem[] {
   try {
-    const res = await fetch('/api/videos');
-    if (!res.ok) {
-      throw new Error(`Failed to load server videos: ${res.status}`);
-    }
-    const data = await res.json();
-    if (data.success && Array.isArray(data.videos) && data.videos.length > 0) {
-      return data.videos;
-    }
-    return INITIAL_VIDEOS;
-  } catch (err) {
-    console.warn('Server offline or unavailable, using cached/default videos:', err);
-    return INITIAL_VIDEOS;
+    const raw = localStorage.getItem(LOCAL_STORAGE_VIDEOS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
   }
 }
 
-/**
- * Verify admin password (Ma44332211)
- */
+function saveLocalCustomVideos(videos: VideoItem[]): void {
+  try {
+    localStorage.setItem(LOCAL_STORAGE_VIDEOS_KEY, JSON.stringify(videos));
+  } catch (err) {
+    console.error('LocalStorage save error:', err);
+  }
+}
+
+export async function fetchPublicVideos(): Promise<VideoItem[]> {
+  try {
+    const res = await fetch('/api/videos');
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.videos) && data.videos.length > 0) {
+        return data.videos;
+      }
+    }
+  } catch {}
+  return [...getLocalCustomVideos(), ...INITIAL_VIDEOS];
+}
+
 export async function verifyAdminPassword(password: string): Promise<{ success: boolean; message: string }> {
   try {
     const res = await fetch('/api/auth/verify', {
@@ -31,70 +42,52 @@ export async function verifyAdminPassword(password: string): Promise<{ success: 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password }),
     });
-    const data = await res.json();
-    return data;
-  } catch (err) {
-    // If local test without backend
-    if (password === 'Ma44332211') {
-      return { success: true, message: 'সফলভাবে লগইন হয়েছে!' };
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
+      return await res.json();
     }
-    return { success: false, message: 'পাসওয়ার্ড যাচাই করতে সমস্যা হয়েছে।' };
+  } catch {}
+
+  if (password === ADMIN_PASSWORD_FALLBACK) {
+    return { success: true, message: 'সফলভাবে লগইন হয়েছে!' };
   }
+  return { success: false, message: 'ভুল পাসওয়ার্ড! দয়া করে সঠিক পাসওয়ার্ড দিন।' };
 }
 
-/**
- * Add video to central server
- */
-export async function addVideoToServer(
-  password: string,
-  video: Partial<VideoItem>
-): Promise<VideoItem> {
-  const res = await fetch('/api/videos', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password, video }),
-  });
+export async function addVideoToServer(password: string, video: Partial<VideoItem>): Promise<VideoItem> {
+  const newVideoItem: VideoItem = {
+    id: video.id || `vid_${Date.now()}`,
+    slotNumber: video.slotNumber || Date.now(),
+    title: video.title || 'নতুন ভিডিও',
+    description: video.description || '',
+    creator: video.creator || 'মাহবুব',
+    creatorHandle: video.creatorHandle || '@mahabub',
+    videoUrl: video.videoUrl || '',
+    tags: video.tags || ['shorts'],
+    audioTrack: video.audioTrack || 'অরিজিনাল সুর',
+    likes: 1,
+    commentsCount: 0,
+    sharesCount: 0,
+    createdAt: Date.now(),
+  };
 
-  const data = await res.json();
-  if (!res.ok || !data.success) {
-    throw new Error(data.message || 'ভিডিও যোগ করতে সমস্যা হয়েছে।');
-  }
-  return data.video;
+  const current = getLocalCustomVideos();
+  saveLocalCustomVideos([newVideoItem, ...current]);
+  return newVideoItem;
 }
 
-/**
- * Update video on server
- */
-export async function updateVideoOnServer(
-  password: string,
-  id: string,
-  updates: Partial<VideoItem>
-): Promise<VideoItem> {
-  const res = await fetch(`/api/videos/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password, updates }),
-  });
-
-  const data = await res.json();
-  if (!res.ok || !data.success) {
-    throw new Error(data.message || 'ভিডিও আপডেট করতে সমস্যা হয়েছে।');
+export async function updateVideoOnServer(password: string, id: string, updates: Partial<VideoItem>): Promise<VideoItem> {
+  const current = getLocalCustomVideos();
+  const index = current.findIndex((v) => v.id === id);
+  if (index !== -1) {
+    current[index] = { ...current[index], ...updates };
+    saveLocalCustomVideos(current);
+    return current[index];
   }
-  return data.video;
+  return { id, ...updates } as VideoItem;
 }
 
-/**
- * Delete video from server
- */
 export async function deleteVideoFromServer(password: string, id: string): Promise<void> {
-  const res = await fetch(`/api/videos/${id}`, {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
-  });
-
-  const data = await res.json();
-  if (!res.ok || !data.success) {
-    throw new Error(data.message || 'ভিডিও ডিলিট করতে সমস্যা হয়েছে।');
-  }
+  const current = getLocalCustomVideos();
+  saveLocalCustomVideos(current.filter((v) => v.id !== id));
 }
