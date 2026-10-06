@@ -1,4 +1,3 @@
-import { fetchLiveVideosFromGitHub } from './services/githubSync';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ChevronUp, ChevronDown, Info, X, HelpCircle, Film, DownloadCloud, Sparkles, Lock, RefreshCw } from 'lucide-react';
 import { VideoItem } from './types/video';
@@ -9,6 +8,7 @@ import {
   deleteCustomVideo,
 } from './services/storage';
 import { fetchPublicVideos } from './services/api';
+import { fetchLiveVideosFromGitHub } from './services/githubSync';
 import { TopHeader } from './components/TopHeader';
 import { VideoPlayer } from './components/VideoPlayer';
 import { UploadModal } from './components/UploadModal';
@@ -66,14 +66,13 @@ export default function App() {
   const loadAllVideos = async () => {
     setIsSyncing(true);
     try {
+      // 1. Fetch live public videos directly from GitHub (synced across all phones globally)
       const githubVideos = await fetchLiveVideosFromGitHub();
-setServerVideos(githubVideos);
-      // 1. Fetch public videos from server (synced across all phones)
-      const fetched = await fetchPublicVideos();
-      if (fetched && fetched.length > 0) {
-        setServerVideos(fetched);
+      if (githubVideos && githubVideos.length > 0) {
+        setServerVideos(githubVideos);
       } else {
-        setServerVideos(INITIAL_VIDEOS);
+        const fetched = await fetchPublicVideos();
+        setServerVideos(fetched && fetched.length > 0 ? fetched : INITIAL_VIDEOS);
       }
 
       // 2. Fetch local custom videos and offline IDs
@@ -91,7 +90,6 @@ setServerVideos(githubVideos);
 
   // Combine public server videos + local user uploads (prioritizing server videos)
   const allVideos = useMemo(() => {
-    // Unique by id
     const map = new Map<string, VideoItem>();
     serverVideos.forEach((v) => map.set(v.id, v));
     localCustomVideos.forEach((v) => {
@@ -409,4 +407,4 @@ setServerVideos(githubVideos);
       />
     </div>
   );
-}
+  }
